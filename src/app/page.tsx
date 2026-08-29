@@ -165,7 +165,7 @@ function SetLibrary({ onStudy }: { onStudy: (set: StudySet) => void }) {
 }
 
 function FolderLibrary() {
-  const [folders, setFolders] = useState<StudyFolder[]>([]), [sets, setSets] = useState<StudySet[]>([]), [name, setName] = useState("");
+  const [folders, setFolders] = useState<StudyFolder[]>([]), [sets, setSets] = useState<StudySet[]>([]), [name, setName] = useState(""), [error, setError] = useState("");
   useEffect(() => {
     // Browser storage becomes available only after the client component hydrates.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -174,10 +174,10 @@ function FolderLibrary() {
   }, []);
   const createFolder = () => {
     const trimmed = name.trim();
-    if (!trimmed) return;
-    if (folders.some((folder) => folder.name.toLowerCase() === trimmed.toLowerCase())) { window.alert("A folder with that name already exists."); return; }
+    if (!trimmed) { setError("Enter a folder name before creating it."); return; }
+    if (folders.some((folder) => folder.name.toLowerCase() === trimmed.toLowerCase())) { setError("A folder with that name already exists."); return; }
     const next = [...folders, { id: Date.now(), name: trimmed }];
-    setFolders(next); window.localStorage.setItem(folderStorageKey, JSON.stringify(next)); setName("");
+    setFolders(next); window.localStorage.setItem(folderStorageKey, JSON.stringify(next)); setName(""); setError("");
   };
   const deleteFolder = (folder: StudyFolder) => {
     if (!window.confirm('Delete "' + folder.name + '"? Its sets will not be deleted.')) return;
@@ -185,7 +185,7 @@ function FolderLibrary() {
     const unassigned = sets.map((set) => set.folderId === folder.id ? { ...set, folderId: undefined } : set);
     setFolders(remaining); setSets(unassigned); window.localStorage.setItem(folderStorageKey, JSON.stringify(remaining)); window.localStorage.setItem(setStorageKey, JSON.stringify(unassigned));
   };
-  return <div className="sets-page"><div className="sets-heading"><div><p className="eyebrow">YOUR LIBRARY</p><h1>Folders</h1><p>Keep related study sets together.</p></div></div><section className="folder-create"><label htmlFor="folder-name">New folder</label><div><input id="folder-name" value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") createFolder(); }} placeholder="e.g. Biology" /><button className="add-set" onClick={createFolder}>+ Create folder</button></div></section>{folders.length ? <div className="folder-list">{folders.map((folder) => { const count = sets.filter((set) => set.folderId === folder.id).length; return <article className="folder-card" key={folder.id}><span>□</span><div><h2>{folder.name}</h2><p>{count} {count === 1 ? "set" : "sets"}</p></div><button className="delete-set" onClick={() => deleteFolder(folder)}>Delete</button></article>; })}</div> : <div className="no-sets"><span>□</span><h2>No folders yet</h2><p>Create a folder, then use a set’s Folder menu to add it.</p></div>}</div>;
+  return <div className="sets-page"><div className="sets-heading"><div><p className="eyebrow">YOUR LIBRARY</p><h1>Folders</h1><p>Keep related study sets together.</p></div></div><form className="folder-create" onSubmit={(event) => { event.preventDefault(); createFolder(); }}><label htmlFor="folder-name">New folder</label><div><input id="folder-name" value={name} onChange={(event) => { setName(event.target.value); setError(""); }} placeholder="e.g. Biology" aria-describedby={error ? "folder-error" : undefined} /><button className="add-set" type="submit">+ Create folder</button></div>{error && <p className="form-error" id="folder-error">{error}</p>}</form>{folders.length ? <div className="folder-list">{folders.map((folder) => { const count = sets.filter((set) => set.folderId === folder.id).length; return <article className="folder-card" key={folder.id}><span>□</span><div><h2>{folder.name}</h2><p>{count} {count === 1 ? "set" : "sets"}</p></div><button className="delete-set" onClick={() => deleteFolder(folder)}>Delete</button></article>; })}</div> : <div className="no-sets"><span>□</span><h2>No folders yet</h2><p>Create a folder, then use a set’s Folder menu to add it.</p></div>}</div>;
 }
 function Dialog({ kind, close, endSession }: { kind: Exclude<DialogKind, null>; close: () => void; endSession: () => void }) {
   const content = { help: ["How can we help?", "Choose an answer with the mouse or keys 1–4. Switch on Typed answers for recall practice, then press Enter to check or continue."], notifications: ["You’re all caught up", "There are no new study reminders right now."], options: ["Cell Biology options", "This self-contained set has 24 cards. Progress is tracked during your current session."], session: ["Session settings", "Answer mode and session progress are controlled from the study panel. Your keyboard shortcuts are active while studying."], profile: ["Kaden", "You’re on the Free plan. Your current study session is available on this device."], end: ["End this session?", "Your completed cards will stay counted, and you can restart the session whenever you’re ready."] } as const;
