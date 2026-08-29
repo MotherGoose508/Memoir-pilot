@@ -65,17 +65,21 @@ export default function Home() {
 }
 function EmptyView({ view, onLearn, onStudy }: { view: Exclude<View, "learn">; onLearn: () => void; onStudy: (set: StudySet) => void }) {
   if (view === "sets") return <SetLibrary onStudy={onStudy} />;
-  const copy = view === "folders" ? ["Folders", "Organize your study sets into folders as you grow your library."] : ["Settings", "Study preferences are available from each session."];
+  if (view === "folders") return <FolderLibrary />;
+  const copy = ["Settings", "Study preferences are available from each session."];
   return <div className="empty-page"><p className="eyebrow">MEMOIR</p><h1>{copy[0]}</h1><p>{copy[1]}</p><button onClick={onLearn}>Go to learning</button></div>;
 }
 
 type StudyCard = { term: string; definition: string };
-type StudySet = { id: number; title: string; description: string; cards: StudyCard[]; cardCount?: number };
+type StudySet = { id: number; title: string; description: string; cards: StudyCard[]; cardCount?: number; folderId?: number };
+type StudyFolder = { id: number; name: string };
 const setStorageKey = "memoir-study-sets";
+const folderStorageKey = "memoir-study-folders";
 const starterSet: StudySet = { id: 1, title: "Cell Biology", description: "Learn the building blocks of life", cards: [], cardCount: 24 };
 
 function SetLibrary({ onStudy }: { onStudy: (set: StudySet) => void }) {
   const [sets, setSets] = useState<StudySet[]>([starterSet]);
+  const [folders, setFolders] = useState<StudyFolder[]>([]);
   const [ready, setReady] = useState(false), [editingId, setEditingId] = useState<number | null>(null);
   const [bulkTerms, setBulkTerms] = useState(""), [bulkDefinitions, setBulkDefinitions] = useState("");
   useEffect(() => {
@@ -86,6 +90,10 @@ function SetLibrary({ onStudy }: { onStudy: (set: StudySet) => void }) {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setSets(JSON.parse(saved));
       } catch { window.localStorage.removeItem(setStorageKey); }
+    }
+    const savedFolders = window.localStorage.getItem(folderStorageKey);
+    if (savedFolders) {
+      try { setFolders(JSON.parse(savedFolders)); } catch { window.localStorage.removeItem(folderStorageKey); }
     }
     setReady(true);
   }, []);
@@ -145,9 +153,33 @@ function SetLibrary({ onStudy }: { onStudy: (set: StudySet) => void }) {
     }
   };
   return <div className="sets-page"><div className="sets-heading"><div><p className="eyebrow">YOUR LIBRARY</p><h1>My sets</h1><p>Build a collection of subjects to study.</p></div><button className="add-set" onClick={createSet}>+ Add set</button></div>
-    {selected && <section className="set-editor"><div className="editor-heading"><div><p className="eyebrow">EDITING SET</p><h2>{selected.title || "Untitled set"}</h2><small>Saved automatically on this device</small></div><button className="secondary" onClick={() => setEditingId(null)}>Done</button></div><label>Set name<input value={selected.title} onChange={(event) => updateSet(selected.id, { title: event.target.value })} placeholder="e.g. Spanish vocabulary" /></label><label>Description <span>(optional)</span><input value={selected.description} onChange={(event) => updateSet(selected.id, { description: event.target.value })} placeholder="What will you study?" /></label><div className="term-heading"><h3>Terms and definitions</h3><div><label className="import-cards">Import file<input type="file" accept=".docx,.xlsx,.csv,.tsv,.txt" onChange={(event) => { const file = event.target.files?.[0]; if (file) importCards(file); event.currentTarget.value = ""; }} /></label><button onClick={() => updateSet(selected.id, { cards: [...selected.cards, { term: "", definition: "" }] })}>+ Add card</button></div></div><p className="import-hint">Import a Word table or spreadsheet, or paste two copied columns below.</p><div className="paste-columns"><label>Paste terms<textarea value={bulkTerms} onChange={(event) => setBulkTerms(event.target.value)} placeholder={"One term per line\nWestern Front\nBattle of the Marne"} /></label><label>Paste definitions<textarea value={bulkDefinitions} onChange={(event) => setBulkDefinitions(event.target.value)} placeholder={"One definition per line\nThe WWI front in France and Belgium\nA 1914 battle that halted Germany"} /></label><div className="paste-actions"><span>{bulkTerms.split(/\r?\n/).filter(Boolean).length} terms · {bulkDefinitions.split(/\r?\n/).filter(Boolean).length} definitions</span><button className="primary" onClick={pasteColumns}>Match and add cards</button></div></div><div className="card-editor-list">{selected.cards.map((card, index) => <div className="card-editor" key={index}><label>Term<input value={card.term} onChange={(event) => updateCard(index, { term: event.target.value })} placeholder="e.g. Mitochondrion" /></label><label>Definition<input value={card.definition} onChange={(event) => updateCard(index, { definition: event.target.value })} placeholder="e.g. Produces energy for the cell" /></label><button className="delete-set" onClick={() => updateSet(selected.id, { cards: selected.cards.filter((_, cardIndex) => cardIndex !== index) })}>Remove</button></div>)}</div></section>}
-    {sets.length ? <div className="set-list">{sets.map((set) => { const cardTotal = set.cards.length ? set.cards.filter((card) => card.term.trim() && card.definition.trim()).length : set.cardCount || 0; return <article className="set-card" key={set.id}><div className="set-card-icon">▤</div><div className="set-card-copy"><h2>{set.title || "Untitled set"}</h2><p>{set.description || "No description yet"}</p><small>{cardTotal} cards</small></div><div className="set-card-actions"><button className="study-set" onClick={() => onStudy(set)} disabled={cardTotal === 0}>{cardTotal ? "Study" : "Add cards first"}</button><button className="secondary" onClick={() => setEditingId(set.id)}>Edit</button><button className="delete-set" onClick={() => deleteSet(set)} aria-label={"Delete " + set.title}>Delete</button></div></article>; })}</div> : <div className="no-sets"><span>▤</span><h2>No sets yet</h2><p>Create your first study set to get started.</p><button className="primary" onClick={createSet}>+ Add set</button></div>}
+    {selected && <section className="set-editor"><div className="editor-heading"><div><p className="eyebrow">EDITING SET</p><h2>{selected.title || "Untitled set"}</h2><small>Saved automatically on this device</small></div><button className="secondary" onClick={() => setEditingId(null)}>Done</button></div><label>Set name<input value={selected.title} onChange={(event) => updateSet(selected.id, { title: event.target.value })} placeholder="e.g. Spanish vocabulary" /></label><label>Description <span>(optional)</span><input value={selected.description} onChange={(event) => updateSet(selected.id, { description: event.target.value })} placeholder="What will you study?" /></label><label>Folder<select value={selected.folderId || ""} onChange={(event) => updateSet(selected.id, { folderId: event.target.value ? Number(event.target.value) : undefined })}><option value="">No folder</option>{folders.map((folder) => <option value={folder.id} key={folder.id}>{folder.name}</option>)}</select><small className="field-note">Create folders from the Folders page.</small></label><div className="term-heading"><h3>Terms and definitions</h3><div><label className="import-cards">Import file<input type="file" accept=".docx,.xlsx,.csv,.tsv,.txt" onChange={(event) => { const file = event.target.files?.[0]; if (file) importCards(file); event.currentTarget.value = ""; }} /></label><button onClick={() => updateSet(selected.id, { cards: [...selected.cards, { term: "", definition: "" }] })}>+ Add card</button></div></div><p className="import-hint">Import a Word table or spreadsheet, or paste two copied columns below.</p><div className="paste-columns"><label>Paste terms<textarea value={bulkTerms} onChange={(event) => setBulkTerms(event.target.value)} placeholder={"One term per line\nWestern Front\nBattle of the Marne"} /></label><label>Paste definitions<textarea value={bulkDefinitions} onChange={(event) => setBulkDefinitions(event.target.value)} placeholder={"One definition per line\nThe WWI front in France and Belgium\nA 1914 battle that halted Germany"} /></label><div className="paste-actions"><span>{bulkTerms.split(/\r?\n/).filter(Boolean).length} terms · {bulkDefinitions.split(/\r?\n/).filter(Boolean).length} definitions</span><button className="primary" onClick={pasteColumns}>Match and add cards</button></div></div><div className="card-editor-list">{selected.cards.map((card, index) => <div className="card-editor" key={index}><label>Term<input value={card.term} onChange={(event) => updateCard(index, { term: event.target.value })} placeholder="e.g. Mitochondrion" /></label><label>Definition<input value={card.definition} onChange={(event) => updateCard(index, { definition: event.target.value })} placeholder="e.g. Produces energy for the cell" /></label><button className="delete-set" onClick={() => updateSet(selected.id, { cards: selected.cards.filter((_, cardIndex) => cardIndex !== index) })}>Remove</button></div>)}</div></section>}
+    {sets.length ? <div className="set-list">{sets.map((set) => { const cardTotal = set.cards.length ? set.cards.filter((card) => card.term.trim() && card.definition.trim()).length : set.cardCount || 0; const folderName = folders.find((folder) => folder.id === set.folderId)?.name; return <article className="set-card" key={set.id}><div className="set-card-icon">▤</div><div className="set-card-copy"><h2>{set.title || "Untitled set"}</h2><p>{set.description || "No description yet"}</p><small>{cardTotal} cards{folderName ? " · " + folderName : ""}</small></div><div className="set-card-actions"><button className="study-set" onClick={() => onStudy(set)} disabled={cardTotal === 0}>{cardTotal ? "Study" : "Add cards first"}</button><button className="secondary" onClick={() => setEditingId(set.id)}>Edit</button><button className="delete-set" onClick={() => deleteSet(set)} aria-label={"Delete " + set.title}>Delete</button></div></article>; })}</div> : <div className="no-sets"><span>▤</span><h2>No sets yet</h2><p>Create your first study set to get started.</p><button className="primary" onClick={createSet}>+ Add set</button></div>}
   </div>;
+}
+
+function FolderLibrary() {
+  const [folders, setFolders] = useState<StudyFolder[]>([]), [sets, setSets] = useState<StudySet[]>([]), [name, setName] = useState("");
+  useEffect(() => {
+    // Browser storage becomes available only after the client component hydrates.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    try { setFolders(JSON.parse(window.localStorage.getItem(folderStorageKey) || "[]")); } catch { window.localStorage.removeItem(folderStorageKey); }
+    try { setSets(JSON.parse(window.localStorage.getItem(setStorageKey) || "[]")); } catch { window.localStorage.removeItem(setStorageKey); }
+  }, []);
+  const createFolder = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (folders.some((folder) => folder.name.toLowerCase() === trimmed.toLowerCase())) { window.alert("A folder with that name already exists."); return; }
+    const next = [...folders, { id: Date.now(), name: trimmed }];
+    setFolders(next); window.localStorage.setItem(folderStorageKey, JSON.stringify(next)); setName("");
+  };
+  const deleteFolder = (folder: StudyFolder) => {
+    if (!window.confirm('Delete "' + folder.name + '"? Its sets will not be deleted.')) return;
+    const remaining = folders.filter((item) => item.id !== folder.id);
+    const unassigned = sets.map((set) => set.folderId === folder.id ? { ...set, folderId: undefined } : set);
+    setFolders(remaining); setSets(unassigned); window.localStorage.setItem(folderStorageKey, JSON.stringify(remaining)); window.localStorage.setItem(setStorageKey, JSON.stringify(unassigned));
+  };
+  return <div className="sets-page"><div className="sets-heading"><div><p className="eyebrow">YOUR LIBRARY</p><h1>Folders</h1><p>Keep related study sets together.</p></div></div><section className="folder-create"><label htmlFor="folder-name">New folder</label><div><input id="folder-name" value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") createFolder(); }} placeholder="e.g. Biology" /><button className="add-set" onClick={createFolder}>+ Create folder</button></div></section>{folders.length ? <div className="folder-list">{folders.map((folder) => { const count = sets.filter((set) => set.folderId === folder.id).length; return <article className="folder-card" key={folder.id}><span>□</span><div><h2>{folder.name}</h2><p>{count} {count === 1 ? "set" : "sets"}</p></div><button className="delete-set" onClick={() => deleteFolder(folder)}>Delete</button></article>; })}</div> : <div className="no-sets"><span>□</span><h2>No folders yet</h2><p>Create a folder, then use a set’s Folder menu to add it.</p></div>}</div>;
 }
 function Dialog({ kind, close, endSession }: { kind: Exclude<DialogKind, null>; close: () => void; endSession: () => void }) {
   const content = { help: ["How can we help?", "Choose an answer with the mouse or keys 1–4. Switch on Typed answers for recall practice, then press Enter to check or continue."], notifications: ["You’re all caught up", "There are no new study reminders right now."], options: ["Cell Biology options", "This self-contained set has 24 cards. Progress is tracked during your current session."], session: ["Session settings", "Answer mode and session progress are controlled from the study panel. Your keyboard shortcuts are active while studying."], profile: ["Kaden", "You’re on the Free plan. Your current study session is available on this device."], end: ["End this session?", "Your completed cards will stay counted, and you can restart the session whenever you’re ready."] } as const;
