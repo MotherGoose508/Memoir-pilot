@@ -77,6 +77,7 @@ const starterSet: StudySet = { id: 1, title: "Cell Biology", description: "Learn
 function SetLibrary({ onStudy }: { onStudy: (set: StudySet) => void }) {
   const [sets, setSets] = useState<StudySet[]>([starterSet]);
   const [ready, setReady] = useState(false), [editingId, setEditingId] = useState<number | null>(null);
+  const [bulkTerms, setBulkTerms] = useState(""), [bulkDefinitions, setBulkDefinitions] = useState("");
   useEffect(() => {
     const saved = window.localStorage.getItem(setStorageKey);
     if (saved) {
@@ -106,6 +107,17 @@ function SetLibrary({ onStudy }: { onStudy: (set: StudySet) => void }) {
     if (!selected) return;
     updateSet(selected.id, { cards: selected.cards.map((card, index) => index === cardIndex ? { ...card, ...change } : card) });
   };
+  const pasteColumns = () => {
+    if (!selected) return;
+    const terms = bulkTerms.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+    const definitions = bulkDefinitions.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+    if (!terms.length || terms.length !== definitions.length) {
+      window.alert("Paste the same number of terms and definitions. Each line will become one flashcard.");
+      return;
+    }
+    updateSet(selected.id, { cards: [...selected.cards.filter((card) => card.term || card.definition), ...terms.map((term, index) => ({ term, definition: definitions[index] }))] });
+    setBulkTerms(""); setBulkDefinitions("");
+  };
   const importCards = async (file: File) => {
     if (!selected) return;
     try {
@@ -114,9 +126,15 @@ function SetLibrary({ onStudy }: { onStudy: (set: StudySet) => void }) {
         const XLSX = await import("xlsx");
         const workbook = XLSX.read(await file.arrayBuffer());
         rows = XLSX.utils.sheet_to_json<string[]>(workbook.Sheets[workbook.SheetNames[0]], { header: 1, blankrows: false }).map((row) => row.map((cell) => String(cell || "")));
+      } else if (file.name.toLowerCase().endsWith(".docx")) {
+        const html = (await (await import("mammoth")).convertToHtml({ arrayBuffer: await file.arrayBuffer() })).value;
+        const document = new DOMParser().parseFromString(html, "text/html");
+        rows = Array.from(document.querySelectorAll("tr")).map((row) => {
+          const cells = Array.from(row.querySelectorAll("th, td")).map((cell) => cell.textContent?.trim() || "");
+          return cells.length >= 3 ? [cells[1], cells[2]] : cells.slice(0, 2);
+        });
       } else {
-        const text = file.name.toLowerCase().endsWith(".docx") ? (await (await import("mammoth")).extractRawText({ arrayBuffer: await file.arrayBuffer() })).value : await file.text();
-        rows = text.split(/\r?\n/).map((line) => line.split(/\t|,|\s[-–—]\s|:\s/));
+        rows = (await file.text()).split(/\r?\n/).map((line) => line.split(/\t|,/));
       }
       const imported = rows.map((row) => ({ term: (row[0] || "").trim(), definition: row.slice(1).join(" ").trim() })).filter((card) => card.term && card.definition && !(/^term$/i.test(card.term) && /^definition$/i.test(card.definition)));
       if (!imported.length) throw new Error("No term/definition pairs found");
@@ -127,7 +145,7 @@ function SetLibrary({ onStudy }: { onStudy: (set: StudySet) => void }) {
     }
   };
   return <div className="sets-page"><div className="sets-heading"><div><p className="eyebrow">YOUR LIBRARY</p><h1>My sets</h1><p>Build a collection of subjects to study.</p></div><button className="add-set" onClick={createSet}>+ Add set</button></div>
-    {selected && <section className="set-editor"><div className="editor-heading"><div><p className="eyebrow">EDITING SET</p><h2>{selected.title || "Untitled set"}</h2><small>Saved automatically on this device</small></div><button className="secondary" onClick={() => setEditingId(null)}>Done</button></div><label>Set name<input value={selected.title} onChange={(event) => updateSet(selected.id, { title: event.target.value })} placeholder="e.g. Spanish vocabulary" /></label><label>Description <span>(optional)</span><input value={selected.description} onChange={(event) => updateSet(selected.id, { description: event.target.value })} placeholder="What will you study?" /></label><div className="term-heading"><h3>Terms and definitions</h3><div><label className="import-cards">Import file<input type="file" accept=".docx,.xlsx,.csv,.tsv,.txt" onChange={(event) => { const file = event.target.files?.[0]; if (file) importCards(file); event.currentTarget.value = ""; }} /></label><button onClick={() => updateSet(selected.id, { cards: [...selected.cards, { term: "", definition: "" }] })}>+ Add card</button></div></div><p className="import-hint">Import a Word document or spreadsheet: first column/term, second column/definition.</p><div className="card-editor-list">{selected.cards.map((card, index) => <div className="card-editor" key={index}><label>Term<input value={card.term} onChange={(event) => updateCard(index, { term: event.target.value })} placeholder="e.g. Mitochondrion" /></label><label>Definition<input value={card.definition} onChange={(event) => updateCard(index, { definition: event.target.value })} placeholder="e.g. Produces energy for the cell" /></label><button className="delete-set" onClick={() => updateSet(selected.id, { cards: selected.cards.filter((_, cardIndex) => cardIndex !== index) })}>Remove</button></div>)}</div></section>}
+    {selected && <section className="set-editor"><div className="editor-heading"><div><p className="eyebrow">EDITING SET</p><h2>{selected.title || "Untitled set"}</h2><small>Saved automatically on this device</small></div><button className="secondary" onClick={() => setEditingId(null)}>Done</button></div><label>Set name<input value={selected.title} onChange={(event) => updateSet(selected.id, { title: event.target.value })} placeholder="e.g. Spanish vocabulary" /></label><label>Description <span>(optional)</span><input value={selected.description} onChange={(event) => updateSet(selected.id, { description: event.target.value })} placeholder="What will you study?" /></label><div className="term-heading"><h3>Terms and definitions</h3><div><label className="import-cards">Import file<input type="file" accept=".docx,.xlsx,.csv,.tsv,.txt" onChange={(event) => { const file = event.target.files?.[0]; if (file) importCards(file); event.currentTarget.value = ""; }} /></label><button onClick={() => updateSet(selected.id, { cards: [...selected.cards, { term: "", definition: "" }] })}>+ Add card</button></div></div><p className="import-hint">Import a Word table or spreadsheet, or paste two copied columns below.</p><div className="paste-columns"><label>Paste terms<textarea value={bulkTerms} onChange={(event) => setBulkTerms(event.target.value)} placeholder={"One term per line\nWestern Front\nBattle of the Marne"} /></label><label>Paste definitions<textarea value={bulkDefinitions} onChange={(event) => setBulkDefinitions(event.target.value)} placeholder={"One definition per line\nThe WWI front in France and Belgium\nA 1914 battle that halted Germany"} /></label><div className="paste-actions"><span>{bulkTerms.split(/\r?\n/).filter(Boolean).length} terms · {bulkDefinitions.split(/\r?\n/).filter(Boolean).length} definitions</span><button className="primary" onClick={pasteColumns}>Match and add cards</button></div></div><div className="card-editor-list">{selected.cards.map((card, index) => <div className="card-editor" key={index}><label>Term<input value={card.term} onChange={(event) => updateCard(index, { term: event.target.value })} placeholder="e.g. Mitochondrion" /></label><label>Definition<input value={card.definition} onChange={(event) => updateCard(index, { definition: event.target.value })} placeholder="e.g. Produces energy for the cell" /></label><button className="delete-set" onClick={() => updateSet(selected.id, { cards: selected.cards.filter((_, cardIndex) => cardIndex !== index) })}>Remove</button></div>)}</div></section>}
     {sets.length ? <div className="set-list">{sets.map((set) => { const cardTotal = set.cards.length ? set.cards.filter((card) => card.term.trim() && card.definition.trim()).length : set.cardCount || 0; return <article className="set-card" key={set.id}><div className="set-card-icon">▤</div><div className="set-card-copy"><h2>{set.title || "Untitled set"}</h2><p>{set.description || "No description yet"}</p><small>{cardTotal} cards</small></div><div className="set-card-actions"><button className="study-set" onClick={() => onStudy(set)} disabled={cardTotal === 0}>{cardTotal ? "Study" : "Add cards first"}</button><button className="secondary" onClick={() => setEditingId(set.id)}>Edit</button><button className="delete-set" onClick={() => deleteSet(set)} aria-label={"Delete " + set.title}>Delete</button></div></article>; })}</div> : <div className="no-sets"><span>▤</span><h2>No sets yet</h2><p>Create your first study set to get started.</p><button className="primary" onClick={createSet}>+ Add set</button></div>}
   </div>;
 }
