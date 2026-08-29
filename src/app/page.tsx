@@ -55,8 +55,28 @@ export default function Home() {
     </section>{dialog && <Dialog kind={dialog} close={() => setDialog(null)} endSession={() => { setDialog(null); setSessionEnded(true); }} />}</main>;
 }
 function EmptyView({ view, onLearn }: { view: Exclude<View, "learn">; onLearn: () => void }) {
-  const copy = view === "sets" ? ["My sets", "Your Cell Biology set is ready to study."] : view === "folders" ? ["Folders", "Organize your study sets into folders as you grow your library."] : ["Settings", "Study preferences are available from each session."];
-  return <div className="empty-page"><p className="eyebrow">MEMOIR</p><h1>{copy[0]}</h1><p>{copy[1]}</p><button onClick={onLearn}>{view === "sets" ? "Open Cell Biology" : "Go to learning"}</button></div>;
+  if (view === "sets") return <SetLibrary onStudy={onLearn} />;
+  const copy = view === "folders" ? ["Folders", "Organize your study sets into folders as you grow your library."] : ["Settings", "Study preferences are available from each session."];
+  return <div className="empty-page"><p className="eyebrow">MEMOIR</p><h1>{copy[0]}</h1><p>{copy[1]}</p><button onClick={onLearn}>Go to learning</button></div>;
+}
+
+type StudySet = { id: number; title: string; description: string; cardCount: number };
+function SetLibrary({ onStudy }: { onStudy: () => void }) {
+  const [sets, setSets] = useState<StudySet[]>([{ id: 1, title: "Cell Biology", description: "Learn the building blocks of life", cardCount: 24 }]);
+  const [adding, setAdding] = useState(false), [title, setTitle] = useState(""), [description, setDescription] = useState("");
+  const addSet = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!title.trim()) return;
+    setSets((current) => [...current, { id: Date.now(), title: title.trim(), description: description.trim() || "A new study set", cardCount: 0 }]);
+    setTitle(""); setDescription(""); setAdding(false);
+  };
+  const deleteSet = (set: StudySet) => {
+    if (window.confirm('Delete "' + set.title + '"? This cannot be undone.')) setSets((current) => current.filter((item) => item.id !== set.id));
+  };
+  return <div className="sets-page"><div className="sets-heading"><div><p className="eyebrow">YOUR LIBRARY</p><h1>My sets</h1><p>Build a collection of subjects to study.</p></div><button className="add-set" onClick={() => setAdding(true)}>+ Add set</button></div>
+    {adding && <form className="set-form" onSubmit={addSet}><label>Set name<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Spanish vocabulary" /></label><label>Description <span>(optional)</span><input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What will you study?" /></label><div><button type="button" className="secondary" onClick={() => { setAdding(false); setTitle(""); setDescription(""); }}>Cancel</button><button className="primary" type="submit">Create set</button></div></form>}
+    {sets.length ? <div className="set-list">{sets.map((set) => <article className="set-card" key={set.id}><div className="set-card-icon">▤</div><div className="set-card-copy"><h2>{set.title}</h2><p>{set.description}</p><small>{set.cardCount} cards</small></div><div className="set-card-actions"><button className="study-set" onClick={onStudy} disabled={set.cardCount === 0}>{set.cardCount ? "Study" : "Add cards first"}</button><button className="delete-set" onClick={() => deleteSet(set)} aria-label={"Delete " + set.title}>Delete</button></div></article>)}</div> : <div className="no-sets"><span>▤</span><h2>No sets yet</h2><p>Create your first study set to get started.</p><button className="primary" onClick={() => setAdding(true)}>+ Add set</button></div>}
+  </div>;
 }
 function Dialog({ kind, close, endSession }: { kind: Exclude<DialogKind, null>; close: () => void; endSession: () => void }) {
   const content = { help: ["How can we help?", "Choose an answer with the mouse or keys 1–4. Switch on Typed answers for recall practice, then press Enter to check or continue."], notifications: ["You’re all caught up", "There are no new study reminders right now."], options: ["Cell Biology options", "This self-contained set has 24 cards. Progress is tracked during your current session."], session: ["Session settings", "Answer mode and session progress are controlled from the study panel. Your keyboard shortcuts are active while studying."], profile: ["Kaden", "You’re on the Free plan. Your current study session is available on this device."], end: ["End this session?", "Your completed cards will stay counted, and you can restart the session whenever you’re ready."] } as const;
