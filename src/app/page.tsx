@@ -48,7 +48,7 @@ export default function Home() {
   return <main className="app-shell">
     <aside className={"sidebar " + (menuOpen ? "open" : "")}><button className="brand" onClick={() => switchView("learn")}><span className="brand-mark">m</span><span>memoir</span></button><nav aria-label="Primary navigation">{nav("learn", "◈", "Learn")}{nav("sets", "▤", "My sets")}{nav("folders", "□", "Folders")}</nav><div className="sidebar-bottom">{nav("settings", "⚙", "Settings")}<button className="profile" onClick={() => setDialog("profile")}><span className="avatar">KA</span><span><strong>Kaden</strong><small>Free plan</small></span><span className="dots">•••</span></button></div></aside>
     {menuOpen && <button className="menu-scrim" aria-label="Close menu" onClick={() => setMenuOpen(false)} />}
-    <section className="content"><header className="topbar"><button className="mobile-menu" aria-label="Open menu" onClick={() => setMenuOpen(true)}>☰</button><div className="crumb"><button onClick={() => switchView("sets")}>My sets</button><b>/</b><strong>{view === "learn" ? "Cell Biology" : view === "sets" ? "My sets" : view === "folders" ? "Folders" : "Settings"}</strong></div><div className="top-actions"><button className="icon-button" aria-label="Notifications" onClick={() => setDialog("notifications")}>♧</button><button className="icon-button" aria-label="Help" onClick={() => setDialog("help")}>?</button></div></header>
+    <section className="content"><header className="topbar"><button className="mobile-menu" aria-label="Open menu" onClick={() => setMenuOpen(true)}>☰</button><div className="crumb"><button onClick={() => switchView("sets")}>My sets</button><b>/</b><strong>{view === "learn" ? "Cell Biology" : view === "sets" ? "My sets" : view === "folders" ? "Folders" : "Settings"}</strong></div><div className="top-actions"><button className="icon-button notification-button" aria-label="Notifications" onClick={() => setDialog("notifications")}>🔔</button><button className="icon-button" aria-label="Help" onClick={() => setDialog("help")}>?</button></div></header>
       {view !== "learn" ? <EmptyView view={view} onLearn={() => switchView("learn")} /> : <div className="study-page"><div className="set-heading"><div><p className="eyebrow">CELL BIOLOGY · 24 CARDS</p><h1>Cell Biology</h1><p className="subtle">Learn the building blocks of life</p></div><button className="more-button" aria-label="More set options" onClick={() => setDialog("options")}>•••</button></div><div className="progress-row"><div className="progress-copy"><strong>{completed}</strong> of 24 mastered</div><div className="progress-track"><span style={{ width: String((completed / 24) * 100) + "%" }} /></div><div className="streak">✦ 3 day streak</div></div>
       <div className="study-grid"><section className="quiz-panel" aria-live="polite">{sessionEnded ? <div className="session-complete"><span>✦</span><h2>Session complete!</h2><p>You reviewed all {cards.length} cards. Keep up the momentum.</p><button onClick={restart}>Study again</button></div> : <><div className="quiz-meta"><span className="pill">Learning</span><span>Card {index + 1} of {cards.length}</span></div><h2>{typed ? "Type the matching term" : "What does this cell part do?"}</h2><div className="prompt-card">{typed ? card.definition : card.term}</div>{typed ? <div className="typing"><input autoFocus aria-label="Your answer" value={typedAnswer} onChange={(event) => setTypedAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") checkTyped(); }} placeholder="Type your answer…" disabled={Boolean(selected)} /><button onClick={checkTyped} disabled={!typedAnswer.trim() || Boolean(selected)}>Check answer</button></div> : <div className="answers">{card.options.map((answer, answerIndex) => { const state = selected ? (answer === card.definition ? "correct" : answer === selected ? "incorrect" : "") : ""; return <button className={"answer " + state} onClick={() => choose(answer)} disabled={Boolean(selected)} key={answer}><span>{String.fromCharCode(65 + answerIndex)}</span>{answer}</button>; })}</div>}{selected && <div className={"feedback " + (correct ? "positive" : "negative")}><span>{correct ? "✓" : "↗"}</span><div><strong>{correct ? "Nice work!" : "Almost — keep going."}</strong><p>{correct ? "That card is one step closer to mastery." : "The answer is: " + (typed ? card.term : card.definition)}</p></div><button onClick={next}>Continue →</button></div>}<p className="keyboard-hint">Use <kbd>1</kbd>–<kbd>4</kbd> to answer · <kbd>↵</kbd> to continue</p></>}</section>
       <aside className="session-panel"><h3>This session</h3><div className="session-stat"><span className="stat-icon orange">↗</span><div><strong>{sessionEnded ? 0 : cards.length - index}</strong><small>Cards remaining</small></div></div><div className="session-stat"><span className="stat-icon green">✓</span><div><strong>{completed}</strong><small>Mastered total</small></div></div><hr /><button className="setting-row" onClick={() => { setTyped((value) => !value); setSelected(null); setTypedAnswer(""); }}><span><strong>Typed answers</strong><small>Challenge yourself with recall</small></span><span className={"toggle " + (typed ? "on" : "")}><i /></span></button><button className="text-button" onClick={() => setDialog("session")}>Session settings <span>›</span></button><button className="end-session" onClick={() => setDialog("end")}>End session</button></aside></div></div>}
@@ -60,22 +60,46 @@ function EmptyView({ view, onLearn }: { view: Exclude<View, "learn">; onLearn: (
   return <div className="empty-page"><p className="eyebrow">MEMOIR</p><h1>{copy[0]}</h1><p>{copy[1]}</p><button onClick={onLearn}>Go to learning</button></div>;
 }
 
-type StudySet = { id: number; title: string; description: string; cardCount: number };
+type StudyCard = { term: string; definition: string };
+type StudySet = { id: number; title: string; description: string; cards: StudyCard[]; cardCount?: number };
+const setStorageKey = "memoir-study-sets";
+const starterSet: StudySet = { id: 1, title: "Cell Biology", description: "Learn the building blocks of life", cards: [], cardCount: 24 };
+
 function SetLibrary({ onStudy }: { onStudy: () => void }) {
-  const [sets, setSets] = useState<StudySet[]>([{ id: 1, title: "Cell Biology", description: "Learn the building blocks of life", cardCount: 24 }]);
-  const [adding, setAdding] = useState(false), [title, setTitle] = useState(""), [description, setDescription] = useState("");
-  const addSet = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!title.trim()) return;
-    setSets((current) => [...current, { id: Date.now(), title: title.trim(), description: description.trim() || "A new study set", cardCount: 0 }]);
-    setTitle(""); setDescription(""); setAdding(false);
+  const [sets, setSets] = useState<StudySet[]>([starterSet]);
+  const [ready, setReady] = useState(false), [editingId, setEditingId] = useState<number | null>(null);
+  useEffect(() => {
+    const saved = window.localStorage.getItem(setStorageKey);
+    if (saved) {
+      try {
+        // The saved browser snapshot must be loaded once after client hydration.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setSets(JSON.parse(saved));
+      } catch { window.localStorage.removeItem(setStorageKey); }
+    }
+    setReady(true);
+  }, []);
+  useEffect(() => { if (ready) window.localStorage.setItem(setStorageKey, JSON.stringify(sets)); }, [ready, sets]);
+  const updateSet = (id: number, change: Partial<StudySet>) => setSets((current) => current.map((set) => set.id === id ? { ...set, ...change } : set));
+  const createSet = () => {
+    const id = Date.now();
+    setSets((current) => [...current, { id, title: "Untitled set", description: "", cards: [{ term: "", definition: "" }] }]);
+    setEditingId(id);
   };
   const deleteSet = (set: StudySet) => {
-    if (window.confirm('Delete "' + set.title + '"? This cannot be undone.')) setSets((current) => current.filter((item) => item.id !== set.id));
+    if (window.confirm('Delete "' + set.title + '"? This cannot be undone.')) {
+      setSets((current) => current.filter((item) => item.id !== set.id));
+      if (editingId === set.id) setEditingId(null);
+    }
   };
-  return <div className="sets-page"><div className="sets-heading"><div><p className="eyebrow">YOUR LIBRARY</p><h1>My sets</h1><p>Build a collection of subjects to study.</p></div><button className="add-set" onClick={() => setAdding(true)}>+ Add set</button></div>
-    {adding && <form className="set-form" onSubmit={addSet}><label>Set name<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Spanish vocabulary" /></label><label>Description <span>(optional)</span><input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What will you study?" /></label><div><button type="button" className="secondary" onClick={() => { setAdding(false); setTitle(""); setDescription(""); }}>Cancel</button><button className="primary" type="submit">Create set</button></div></form>}
-    {sets.length ? <div className="set-list">{sets.map((set) => <article className="set-card" key={set.id}><div className="set-card-icon">▤</div><div className="set-card-copy"><h2>{set.title}</h2><p>{set.description}</p><small>{set.cardCount} cards</small></div><div className="set-card-actions"><button className="study-set" onClick={onStudy} disabled={set.cardCount === 0}>{set.cardCount ? "Study" : "Add cards first"}</button><button className="delete-set" onClick={() => deleteSet(set)} aria-label={"Delete " + set.title}>Delete</button></div></article>)}</div> : <div className="no-sets"><span>▤</span><h2>No sets yet</h2><p>Create your first study set to get started.</p><button className="primary" onClick={() => setAdding(true)}>+ Add set</button></div>}
+  const selected = sets.find((set) => set.id === editingId);
+  const updateCard = (cardIndex: number, change: Partial<StudyCard>) => {
+    if (!selected) return;
+    updateSet(selected.id, { cards: selected.cards.map((card, index) => index === cardIndex ? { ...card, ...change } : card) });
+  };
+  return <div className="sets-page"><div className="sets-heading"><div><p className="eyebrow">YOUR LIBRARY</p><h1>My sets</h1><p>Build a collection of subjects to study.</p></div><button className="add-set" onClick={createSet}>+ Add set</button></div>
+    {selected && <section className="set-editor"><div className="editor-heading"><div><p className="eyebrow">EDITING SET</p><h2>{selected.title || "Untitled set"}</h2><small>Saved automatically on this device</small></div><button className="secondary" onClick={() => setEditingId(null)}>Done</button></div><label>Set name<input value={selected.title} onChange={(event) => updateSet(selected.id, { title: event.target.value })} placeholder="e.g. Spanish vocabulary" /></label><label>Description <span>(optional)</span><input value={selected.description} onChange={(event) => updateSet(selected.id, { description: event.target.value })} placeholder="What will you study?" /></label><div className="term-heading"><h3>Terms and definitions</h3><button onClick={() => updateSet(selected.id, { cards: [...selected.cards, { term: "", definition: "" }] })}>+ Add card</button></div><div className="card-editor-list">{selected.cards.map((card, index) => <div className="card-editor" key={index}><label>Term<input value={card.term} onChange={(event) => updateCard(index, { term: event.target.value })} placeholder="e.g. Mitochondrion" /></label><label>Definition<input value={card.definition} onChange={(event) => updateCard(index, { definition: event.target.value })} placeholder="e.g. Produces energy for the cell" /></label><button className="delete-set" onClick={() => updateSet(selected.id, { cards: selected.cards.filter((_, cardIndex) => cardIndex !== index) })}>Remove</button></div>)}</div></section>}
+    {sets.length ? <div className="set-list">{sets.map((set) => { const cardTotal = set.cards.length || set.cardCount || 0; return <article className="set-card" key={set.id}><div className="set-card-icon">▤</div><div className="set-card-copy"><h2>{set.title || "Untitled set"}</h2><p>{set.description || "No description yet"}</p><small>{cardTotal} cards</small></div><div className="set-card-actions"><button className="study-set" onClick={onStudy} disabled={cardTotal === 0}>{cardTotal ? "Study" : "Add cards first"}</button><button className="secondary" onClick={() => setEditingId(set.id)}>Edit</button><button className="delete-set" onClick={() => deleteSet(set)} aria-label={"Delete " + set.title}>Delete</button></div></article>; })}</div> : <div className="no-sets"><span>▤</span><h2>No sets yet</h2><p>Create your first study set to get started.</p><button className="primary" onClick={createSet}>+ Add set</button></div>}
   </div>;
 }
 function Dialog({ kind, close, endSession }: { kind: Exclude<DialogKind, null>; close: () => void; endSession: () => void }) {
