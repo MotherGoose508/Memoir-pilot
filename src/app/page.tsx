@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type QuizCard = { term: string; definition: string; options?: string[] };
 const defaultCards: QuizCard[] = [
@@ -13,24 +13,56 @@ type View = "learn" | "sets" | "folders" | "settings";
 type DialogKind = "help" | "notifications" | "options" | "session" | "profile" | "end" | null;
 type Theme = "light" | "dark";
 const normalize = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+type Streak = { count: number; lastDate: string };
+const streakStorageKey = "memoir-study-streak";
+const dateKey = (date: Date) => [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+const loadStreak = (): Streak => {
+  if (typeof window === "undefined") return { count: 0, lastDate: "" };
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(streakStorageKey) || "null") as Streak | null;
+    if (!saved) return { count: 0, lastDate: "" };
+    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+    return saved.lastDate === dateKey(new Date()) || saved.lastDate === dateKey(yesterday) ? saved : { count: 0, lastDate: "" };
+  } catch { return { count: 0, lastDate: "" }; }
+};
 
 export default function Home() {
   const [index, setIndex] = useState(0), [selected, setSelected] = useState<string | null>(null), [completed, setCompleted] = useState(0);
   const [typed, setTyped] = useState(false), [typedAnswer, setTypedAnswer] = useState(""), [view, setView] = useState<View>("learn");
   const [dialog, setDialog] = useState<DialogKind>(null), [menuOpen, setMenuOpen] = useState(false), [sessionEnded, setSessionEnded] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => typeof window !== "undefined" && window.localStorage.getItem("memoir-theme") === "dark" ? "dark" : "light");
+  const [streak, setStreak] = useState<Streak>(loadStreak);
   const [activeSet, setActiveSet] = useState({ title: "Cell Biology", description: "Learn the building blocks of life", cards: defaultCards });
   const cards = activeSet.cards;
   const card = cards[index];
   const useTyped = typed;
-  const answerOptions = card.options || Array.from(new Set([card.definition, ...cards.filter((item) => item.definition !== card.definition).map((item) => item.definition)])).slice(0, 4);
+  const answerOptions = useMemo(() => {
+    const choices = [...(card.options || Array.from(new Set([card.definition, ...cards.filter((item) => item.definition !== card.definition).map((item) => item.definition)])).slice(0, 4))];
+    let seed = Array.from(card.term).reduce((total, character) => total + character.charCodeAt(0), index + 1);
+    for (let position = choices.length - 1; position > 0; position--) {
+      seed = (seed * 9301 + 49297) % 233280;
+      const swapWith = seed % (position + 1);
+      [choices[position], choices[swapWith]] = [choices[swapWith], choices[position]];
+    }
+    return choices;
+  }, [card, cards, index]);
   const correct = selected !== null && (useTyped ? normalize(selected) === normalize(card.term) : selected === card.definition);
   const choose = (answer: string) => { if (!selected) setSelected(answer); };
   const checkTyped = () => { if (typedAnswer.trim()) choose(typedAnswer); };
+  const recordStudyDay = useCallback(() => {
+    setStreak((current) => {
+      const today = dateKey(new Date());
+      if (current.lastDate === today) return current;
+      const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+      const next = { count: current.lastDate === dateKey(yesterday) ? current.count + 1 : 1, lastDate: today };
+      window.localStorage.setItem(streakStorageKey, JSON.stringify(next));
+      return next;
+    });
+  }, []);
   const restart = () => { setIndex(0); setSelected(null); setTypedAnswer(""); setSessionEnded(false); };
   const next = () => {
     if (!selected) return;
-    if (correct) setCompleted((value) => Math.min(cards.length, value + 1));
+    if (correct) { setCompleted((value) => Math.min(cards.length, value + 1)); recordStudyDay(); }
     if (index === cards.length - 1) setSessionEnded(true);
     else { setIndex((value) => value + 1); setSelected(null); setTypedAnswer(""); }
   };
@@ -39,7 +71,7 @@ export default function Home() {
       if (view !== "learn" || sessionEnded || dialog) return;
       if (event.key === "Enter" && selected) {
         event.preventDefault();
-        if (correct) setCompleted((value) => Math.min(cards.length, value + 1));
+        if (correct) { setCompleted((value) => Math.min(cards.length, value + 1)); recordStudyDay(); }
         if (index === cards.length - 1) setSessionEnded(true);
         else { setIndex((value) => value + 1); setSelected(null); setTypedAnswer(""); }
       } else if (!useTyped && !selected && /^[1-4]$/.test(event.key)) {
@@ -48,7 +80,7 @@ export default function Home() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [answerOptions, cards.length, correct, dialog, index, selected, sessionEnded, useTyped, view]);
+  }, [answerOptions, cards.length, correct, dialog, index, recordStudyDay, selected, sessionEnded, useTyped, view]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     window.localStorage.setItem("memoir-theme", theme);
@@ -65,7 +97,7 @@ export default function Home() {
     <aside className={"sidebar " + (menuOpen ? "open" : "")}><button className="brand" onClick={() => switchView("learn")}><span className="brand-mark">m</span><span>memoir</span></button><nav aria-label="Primary navigation">{nav("learn", "◈", "Learn")}{nav("sets", "▤", "My sets")}{nav("folders", "□", "Folders")}</nav><div className="sidebar-bottom">{nav("settings", "⚙", "Settings")}<button className="profile" onClick={() => setDialog("profile")}><span className="avatar">KA</span><span><strong>Kaden</strong><small>Free plan</small></span><span className="dots">•••</span></button></div></aside>
     {menuOpen && <button className="menu-scrim" aria-label="Close menu" onClick={() => setMenuOpen(false)} />}
     <section className="content"><header className="topbar"><button className="mobile-menu" aria-label="Open menu" onClick={() => setMenuOpen(true)}>☰</button><div className="crumb"><button onClick={() => switchView("sets")}>My sets</button><b>/</b><strong>{view === "learn" ? activeSet.title : view === "sets" ? "My sets" : view === "folders" ? "Folders" : "Settings"}</strong></div><div className="top-actions"><button className="icon-button theme-button" aria-label={"Switch to " + (theme === "light" ? "dark" : "light") + " mode"} onClick={() => setTheme((current) => current === "light" ? "dark" : "light")}>{theme === "light" ? "☾" : "☀"}</button><button className="icon-button notification-button" aria-label="Notifications" onClick={() => setDialog("notifications")}>🔔</button><button className="icon-button" aria-label="Help" onClick={() => setDialog("help")}>?</button></div></header>
-      {view !== "learn" ? <EmptyView view={view} onLearn={() => switchView("learn")} onStudy={studySet} theme={theme} setTheme={setTheme} /> : <div className="study-page"><div className="set-heading"><div><p className="eyebrow">STUDY SET · {cards.length} CARDS</p><h1>{activeSet.title}</h1><p className="subtle">{activeSet.description}</p></div><button className="more-button" aria-label="More set options" onClick={() => setDialog("options")}>•••</button></div><div className="progress-row"><div className="progress-copy"><strong>{completed}</strong> of {cards.length} mastered</div><div className="progress-track"><span style={{ width: String((completed / cards.length) * 100) + "%" }} /></div><div className="streak">✦ 3 day streak</div></div>
+      {view !== "learn" ? <EmptyView view={view} onLearn={() => switchView("learn")} onStudy={studySet} theme={theme} setTheme={setTheme} /> : <div className="study-page"><div className="set-heading"><div><p className="eyebrow">STUDY SET · {cards.length} CARDS</p><h1>{activeSet.title}</h1><p className="subtle">{activeSet.description}</p></div><button className="more-button" aria-label="More set options" onClick={() => setDialog("options")}>•••</button></div><div className="progress-row"><div className="progress-copy"><strong>{completed}</strong> of {cards.length} mastered</div><div className="progress-track"><span style={{ width: String((completed / cards.length) * 100) + "%" }} /></div><div className="streak">{streak.count ? "✦ " + streak.count + " day" + (streak.count === 1 ? "" : "s") + " streak" : "✦ Start your streak"}</div></div>
       <div className="study-grid"><section className="quiz-panel" aria-live="polite">{sessionEnded ? <div className="session-complete"><span>✦</span><h2>Session complete!</h2><p>You reviewed all {cards.length} cards. Keep up the momentum.</p><button onClick={restart}>Study again</button></div> : <><div className="quiz-meta"><span className="pill">Learning</span><span>Card {index + 1} of {cards.length}</span></div><h2>{useTyped ? "Type the matching term" : "Which definition matches this term?"}</h2><div className="prompt-card">{useTyped ? card.definition : card.term}</div>{useTyped ? <div className="typing"><input autoFocus aria-label="Your answer" value={typedAnswer} onChange={(event) => setTypedAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") checkTyped(); }} placeholder="Type your answer…" disabled={Boolean(selected)} /><button onClick={checkTyped} disabled={!typedAnswer.trim() || Boolean(selected)}>Check answer</button></div> : <div className="answers">{answerOptions.map((answer, answerIndex) => { const state = selected ? (answer === card.definition ? "correct" : answer === selected ? "incorrect" : "") : ""; return <button className={"answer " + state} onClick={() => choose(answer)} disabled={Boolean(selected)} key={answer}><span>{String.fromCharCode(65 + answerIndex)}</span>{answer}</button>; })}</div>}{selected && <div className={"feedback " + (correct ? "positive" : "negative")}><span>{correct ? "✓" : "↗"}</span><div><strong>{correct ? "Nice work!" : "Almost — keep going."}</strong><p>{correct ? "That card is one step closer to mastery." : "The answer is: " + (useTyped ? card.term : card.definition)}</p></div><button onClick={next}>Continue →</button></div>}<p className="keyboard-hint">Use <kbd>1</kbd>–<kbd>4</kbd> to answer · <kbd>↵</kbd> to continue</p></>}</section>
       <aside className="session-panel"><h3>This session</h3><div className="session-stat"><span className="stat-icon orange">↗</span><div><strong>{sessionEnded ? 0 : cards.length - index}</strong><small>Cards remaining</small></div></div><div className="session-stat"><span className="stat-icon green">✓</span><div><strong>{completed}</strong><small>Mastered total</small></div></div><hr /><button className="setting-row" onClick={() => { setTyped((value) => !value); setSelected(null); setTypedAnswer(""); }}><span><strong>Typed answers</strong><small>Challenge yourself with recall</small></span><span className={"toggle " + (typed ? "on" : "")}><i /></span></button><button className="text-button" onClick={() => setDialog("session")}>Session settings <span>›</span></button><button className="end-session" onClick={() => setDialog("end")}>End session</button></aside></div></div>}
     </section>{dialog && <Dialog kind={dialog} close={() => setDialog(null)} endSession={() => { setDialog(null); setSessionEnded(true); }} />}</main>;
