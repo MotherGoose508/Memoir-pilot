@@ -137,14 +137,20 @@ function SetLibrary({ onStudy }: { onStudy: (set: StudySet) => void }) {
       } else if (file.name.toLowerCase().endsWith(".docx")) {
         const html = (await (await import("mammoth")).convertToHtml({ arrayBuffer: await file.arrayBuffer() })).value;
         const document = new DOMParser().parseFromString(html, "text/html");
+        const cellText = (cell: Element) => new DOMParser().parseFromString(cell.innerHTML.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n"), "text/html").body.textContent?.replace(/\n{3,}/g, "\n\n").trim() || "";
         rows = Array.from(document.querySelectorAll("tr")).map((row) => {
-          const cells = Array.from(row.querySelectorAll("th, td")).map((cell) => cell.textContent?.trim() || "");
-          return cells.length >= 3 ? [cells[1], cells[2]] : cells.slice(0, 2);
+          const cells = Array.from(row.querySelectorAll("th, td")).map(cellText);
+          // Word study tables often use: number | term/prompt | definition/answer.
+          // Ignore the leading number while preserving paragraph breaks in definitions.
+          return cells.length >= 3 ? [cells[1], cells.slice(2).join("\n")] : cells.slice(0, 2);
         });
       } else {
         rows = (await file.text()).split(/\r?\n/).map((line) => line.split(/\t|,/));
       }
-      const imported = rows.map((row) => ({ term: (row[0] || "").trim(), definition: row.slice(1).join(" ").trim() })).filter((card) => card.term && card.definition && !(/^term$/i.test(card.term) && /^definition$/i.test(card.definition)));
+      const imported = rows.map((row) => ({ term: (row[0] || "").trim(), definition: row.slice(1).join(" ").trim() })).filter((card) => {
+        const isHeader = /term|prompt/i.test(card.term) && /definition|answer/i.test(card.definition);
+        return card.term && card.definition && !isHeader;
+      });
       if (!imported.length) throw new Error("No term/definition pairs found");
       updateSet(selected.id, { cards: [...selected.cards.filter((card) => card.term || card.definition), ...imported] });
       window.alert(imported.length + " cards imported.");
